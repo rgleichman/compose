@@ -1,3 +1,4 @@
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -141,7 +142,7 @@ instance Wrappable WrapMath where
 --instance App AGen WrapMath a b where
 --  apply (WrapMath f) (WrapMath a) = WrapMath $ f a
 
-data AMet_aa a b where
+data AMet_aa :: * -> * -> * where
   AMet_aa :: AMet_aa Method (c->c)
 
 instance Match (AMet_aa Method (c->c))
@@ -164,7 +165,7 @@ instance Wrappable WrapTwice where
   wrap = WrapTwice
   unwrap (WrapTwice a) = a
 
-data Aa_a a b where
+data Aa_a :: * -> * -> * where
   Aa_a :: Aa_a c c
 
 instance Match (Aa_a c c)
@@ -175,7 +176,7 @@ instance App Aa_a WrapTwice a a where
 instance Match (t a b) => App t WrapTwice a b where
   apply = applyDef
 
-data Ab_b a b where
+data Ab_b :: * -> * -> * where
   Ab_b :: Ab_b c c
 
 instance Match (Ab_b c c)
