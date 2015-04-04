@@ -13,6 +13,7 @@ module MockFamily
 --       ,(@!)
        ) where
 
+--TODO: seperate modules
 class Wrappable w where
   unwrap :: w a -> a
   wrap :: a -> w a
@@ -22,54 +23,64 @@ class Match t a b where
 
 --class (Wrappable w, Match t a b) => App t w a b where
 class (Wrappable w, Match t a b) => App t w a b where
-  apply :: (Mock t a b) -> w (a -> b) -> w a -> w b
+  apply :: w (a -> b) -> Mock t a b -> w a -> w b
 
 --This was commented out since including it sometimes caused the inferred type signitures to leave out App constraints
 instance (Wrappable w, Match t a b) => App t w a b where
-  apply = applyDef
+  apply f _ = apply f ADef
 
-applyDef :: (Wrappable w) => t -> w (a -> b) -> w a -> w b
-applyDef _ f x = wrap $ (unwrap f) (unwrap x)
+instance (Wrappable w) => App TDef w a b where
+  apply f _ x = wrap $ (unwrap f) (unwrap x)
+
+makeApplyInst g f _ x = wrap $ g (unwrap f) (unwrap x)
 
 --instance (Wrappable w) => App ADef w a b where
 --  apply _ f x = wrap $ (unwrap f) (unwrap x)
 
 --wApply :: App t w a b => t -> (a -> b) -> w a -> w b
-wApply t f x = apply t (wrap f) x
+wApply f = apply (wrap f)
 
 --applyW :: App t w a b => t -> w (a -> b) -> a -> w b
-applyW t f x= apply t f (wrap x)
+applyW f t x= apply f t (wrap x)
 
 --wApplyW :: App t w a b => t -> (a -> b) -> a -> w b
-wApplyW t f x = apply t (wrap f) (wrap x)
+wApplyW f t x = apply (wrap f) t (wrap x)
 
 data TDef
 
 instance Match TDef a b where
   data Mock TDef a b = ADef
 
-{-
---Remember to put the App constraint in the type, or else it will use the default instance
+--The types for the infix functions are not inferred
 infixl 9 @@
---(@@) :: App w a b => w (a -> b) -> w a -> w b
-f @@ t = apply t f
+(@@) :: App t w a b => w (a -> b) -> Mock t a b -> w a -> w b
+(@@) = apply
 
 --Wraps the fuction
-infixl 9 !@
---(!@) :: App w a b => (a -> b) -> w a -> w b
-f !@ t = apply t (wrap f)
+infixl 9 #@
+(#@) :: App t w a b => (a -> b) -> Mock t a b -> w a -> w b
+(#@) = wApply
 
 --Wraps the fuction and argument
-infixl 9 !@!
---(!@!) :: App w a b => (a -> b) -> a -> w b
-f !@! t = (\x -> apply t (wrap f) (wrap x))
+infixl 9 #@#
+(#@#) :: App t w a b => (a -> b) -> Mock t a b -> a -> w b
+(#@#) = wApplyW 
 
 --Wraps the argument
-infixl 9 @!
---(@!) :: App w a b => w (a -> b) -> a -> w b
-f @! t = (\x -> apply t f (wrap x))
--}
+infixl 9 @#
+(@#) :: App t w a b => w (a -> b) -> Mock t a b -> a -> w b
+(@#) = applyW
 
+infixl 9 &
+(&) = ($)
+
+--Apply unwraped function to two wrapped arguments
+wApply2 :: (App t1 w a1 (a -> b), App t w a b) => Mock t1 a1 (a -> b) -> Mock t a b -> (a1 -> a -> b) -> w a1 -> w a -> w b
+wApply2 t1 t2 f = apply2 t1 t2 (wrap f)
+
+--Apply wrapped function to two wrapped arguments
+apply2 :: (App t1 w a1 (a -> b), App t w a b) => Mock t1 a1 (a -> b) -> Mock t a b -> w (a1 -> a -> b) -> w a1 -> w a -> w b
+apply2 t1 t2 f x y= f @@ t1 & x @@ t2 & y
 
 data Method = Negate | Square | PowerOfTwo
 
@@ -78,35 +89,21 @@ parentObject Negate x = -x
 parentObject Square x = x^(2::Integer)
 parentObject PowerOfTwo x = 2^(x::Integer)                  
 
-{-
-testMethod' x = unwrap val
-  where
-    appliedParent = parentObject !@! Negate
-    val = appliedParent @@ x
--}
-
---testMethod :: (App w Method (Integer -> Integer), App w Integer String, App w Integer Integer) => w Integer -> String
---testMethod :: (Wrappable w, Applicative w) => w Integer -> String
-
-
---testMethod :: (App Aa_a w Integer Integer, App AMet_aa w Method (Integer -> Integer)) => w Integer -> String
---testMethod :: (App Aa_a w Integer Integer, App AMet_aa w Method (Integer -> Integer), App ADef w Integer String) => w Integer -> String
+testMethod :: (App TDef w Integer String, App TAa_a w Integer Integer, App AMet_aa w Method (Integer -> Integer)) => w Integer -> String
 testMethod x = showX ++ show (fmap unwrap [neg, sqr, two])
   where
-    [neg, sqr, two] = fmap (\method -> apply Aa_a (wApplyW AMet_aa parentObject method) x) methods
-    --showX = unwrap $ show !@ x
-    showX = unwrap $ wApply ADef show x
-    --showX = "hello"
+    [neg, sqr, two] = fmap (\method -> wApply2 AMet_aa Aa_a parentObject (wrap method) x) methods
+    showX = unwrap $ show #@ ADef & x
     methods = [Negate, Square, PowerOfTwo]
 
 
 --testMethodAp' :: (Wrappable w, Show a) => w a -> String
-testMethodAp' x = unwrap $ apply ADef (wrap show) x
+testMethodAp' x = unwrap $ show #@ ADef & x
 
 --testMethodAp :: (Wrappable w, Show a) => w a -> String
 testMethodAp x = showX
   where
-    showX = unwrap $ wApply ADef show x
+    showX = unwrap $ show #@ ADef & x
 
 --testWrapAddOne x = testMethod x--(wrapAddOne x)
 --testTestMethod x = testMethod x
@@ -146,15 +143,14 @@ instance Match AMet_aa Method (a->a) where
 --  AMet_aa :: AMet_aa Method (c->c)
 
 instance Num a => App AMet_aa WrapMath Method (a -> a) where
-  apply _ (WrapMath f) (WrapMath m) = WrapMath $ case m of
-    Negate -> (\x -> (f Square x) - 10)
-    _ -> f m
+--  apply _ (WrapMath f) (WrapMath m) = WrapMath $ case m of
+--    Negate -> (\x -> (f Square x) - 10)
+--    _ -> f mn
+  apply = makeApplyInst
+          (\f m -> case m of
+                    Negate -> (\x -> (f Square x) - 10)
+                    _ -> f m)
 
-instance App TDef WrapMath a b where
-  apply = applyDef
-
-instance App TAa_a WrapMath a a where
-  apply = applyDef
 --instance (Match t a b) => App t WrapMath a b where
 --  apply = applyDef
 
@@ -173,41 +169,26 @@ data TAa_a
 instance Match TAa_a a a where
   data Mock TAa_a a a = Aa_a
 
-{-
-data family Aa_a a b
-data instance Aa_a c c where
-  Aa_a :: Aa_a c c
---data Aa_a :: * -> * -> * where
---  Aa_a :: Aa_a c c
--}
-
 instance App TAa_a WrapTwice a a where
-  apply _ (WrapTwice f) (WrapTwice a) = WrapTwice $ f $ f a
+  apply = makeApplyInst (\f -> f.f)
 
 --instance (Match t a b) => App t WrapTwice a b where
 --  apply = applyDef
 
 --applyTwice :: (App Aa_a w b b, App ADef w b String, Show b, Num b) => w b -> String
---applyTwice :: (App TDef w b String, App TAa_a w b b, Show b, Num b) => w b -> String
 applyTwice :: (App TDef w b String, App TAa_a w b b, Show b, Num b) => w b -> String
-applyTwice x = unwrap (wApply ADef show x) ++ (show . unwrap $ wApply Aa_a (+1) x)
-
+applyTwice x = unwrap (wApply show ADef x) ++ (show . unwrap $ wApply (+1) Aa_a x)
 
 data TAb_b
-
 
 instance Match TAb_b c c where
   data Mock TAb_b c c = Ab_b
 
---data Ab_b :: * -> * -> * where
---  Ab_b :: Ab_b c c
-
 instance App TAb_b WrapTwice a a where
-  apply _ (WrapTwice f) (WrapTwice a) = WrapTwice $ f $ f $ f a
+  apply = makeApplyInst (\f -> f.f.f)
 
-
---applyMultiple :: (App Ab_b w b b, App Aa_a w b b, Num b) => w b -> (w b, w b)
-applyMultiple x = (wApply Aa_a (+1) x, wApply Ab_b (+1) x)
+applyMultiple :: (App TAa_a w b b, App TAb_b w b b, Num b) => w b -> (w b, w b)
+applyMultiple x = (wApply (+1) Aa_a x, wApply (+1) Ab_b x)
 
 
 -- BAD STUFF --
